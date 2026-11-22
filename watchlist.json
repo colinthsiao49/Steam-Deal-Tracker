@@ -1,0 +1,14 @@
+{
+  "games": [
+    {
+      "name": "Balatro",
+      "target_price": 10.0
+    }
+  ],
+  "events": {
+    "Spring Sale": "03-14",
+    "Summer Sale": "06-26",
+    "Fall Sale": "11-25",
+    "Winter Sale": "12-19"
+  }
+}
