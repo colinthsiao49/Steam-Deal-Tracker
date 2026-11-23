@@ -3,6 +3,7 @@ import os
 import argparse
 import requests
 from datetime import datetime
+from tabulate import tabulate
 
 watchlist_path = "watchlist.json"
 def load_watchlist():  
@@ -94,19 +95,22 @@ def main():
         if not watchlist["games"]:
             print("No games in the watchlist to check.")
             return
+        table_rows = []
         for game in watchlist["games"]:
             deal_info = fetch_game_deals(game["name"])
             if deal_info is None:
                 print(f"No deals found for {game['name']}.")
                 continue
-            print(f"Game: {deal_info['name']}")
-            print(f"Current Price: ${deal_info['current_price']:.2f}")
-            print(f"Historical Low: ${deal_info['historical_low']:.2f} (on {deal_info['historical_low_date']})")
-            if deal_info["current_price"] <= game["target_price"]:
-                print(f"Good news! The current price is below your target of ${game['target_price']:.2f}!")
-            else:
-                print(f"The current price is above your target of ${game['target_price']:.2f}.")
-            print("-" * 40)
+            status = "Buy Now!" if deal_info["current_price"] <= game["target_price"] else "Wait"
+            table_rows.append([
+                deal_info["name"],
+                f"${deal_info['current_price']:.2f}",
+                f"${deal_info['historical_low']:.2f}",
+                deal_info["historical_low_date"],
+                status
+            ])
+            if table_rows:
+                print(tabulate(table_rows, headers=["Game", "Current Price", "Historical Low", "Historical Low Date", "Status"], tablefmt="grid"))
     
 if __name__ == "__main__":
     main()
