@@ -1,10 +1,12 @@
 import json
 import os
 import argparse
-
+import requests
+from datetime import datetime
 
 watchlist_path = "watchlist.json"
 def load_watchlist():  
+    # Treat an empty file as uninitialized to avoid JSONDecodeError on fresh setups
     if not os.path.exists(watchlist_path) or os.path.getsize(watchlist_path) == 0:
         data = {
             "games": [],
@@ -34,6 +36,33 @@ def parse_args():
     parser.add_argument("--check", action="store_true", help="Check live prices vs. historical lows.")
     return parser.parse_args()
 
+def fetch_game_deals(game_name):
+    # Custom User-Agent avoids default python-requests blocks on public APIs
+    headers = {"User-Agent": "Steam Deal Tracker/1.0"}
+    headers = {"User-Agent": "Steam Deal Tracker/1.0"}
+    base_url = "https://www.cheapshark.com/api/1.0/games"
+    search_result = requests.get(base_url, params={"title": game_name}, headers=headers)
+    search_result.raise_for_status()
+    results = search_result.json()
+    if not results:
+        return None
+    game_id = results[0]["gameID"]
+    current_price = float(results[0]["cheapest"])
+    # CheapShark's title search only returns gameID and current price,
+    # so a second lookup by ID is required to fetch the all-time historical low.
+    detail_res = requests.get(f"https://www.cheapshark.com/api/1.0/games?id={game_id}", headers=headers)
+    detail_res.raise_for_status()
+    details = detail_res.json()
+    historical_low = float(details["cheapestPriceEver"]["price"])
+    # CheapShark returns cheapestPriceEver.date as a Unix epoch timestamp
+    historical_low_date = datetime.fromtimestamp(details["cheapestPriceEver"]["date"]).strftime("%Y-%m-%d")
+    return {
+        "name": game_name,
+        "current_price": current_price,
+        "historical_low": historical_low,
+        "historical_low_date": historical_low_date,
+    }
+
 def main():
     args = parse_args()
     watchlist = load_watchlist()
@@ -62,8 +91,23 @@ def main():
             print(f"- {event}: {date}")
 
     elif args.check:
-        # Placeholder for checking live prices vs. historical lows
-        print("Checking live prices vs. historical lows... (functionality not implemented)")
+        if not watchlist["games"]:
+            print("No games in the watchlist to check.")
+            return
+        for game in watchlist["games"]:
+            deal_info = fetch_game_deals(game["name"])
+            if deal_info is None:
+                print(f"No deals found for {game['name']}.")
+                continue
+            print(f"Game: {deal_info['name']}")
+            print(f"Current Price: ${deal_info['current_price']:.2f}")
+            print(f"Historical Low: ${deal_info['historical_low']:.2f} (on {deal_info['historical_low_date']})")
+            if deal_info["current_price"] <= game["target_price"]:
+                print(f"Good news! The current price is below your target of ${game['target_price']:.2f}!")
+            else:
+                print(f"The current price is above your target of ${game['target_price']:.2f}.")
+            print("-" * 40)
     
 if __name__ == "__main__":
     main()
+
