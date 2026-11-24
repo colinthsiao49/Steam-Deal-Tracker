@@ -64,6 +64,17 @@ def fetch_game_deals(game_name):
         "historical_low_date": historical_low_date,
     }
 
+def send_discord_alert(deal_info, target_price, webhook_url):
+    if deal_info["current_price"] <= target_price:
+        message = {
+            "content": f"Deal Alert! {deal_info['name']} is now ${deal_info['current_price']:.2f}, which is below your target price of ${target_price:.2f}!"
+        }
+        try:
+            response = requests.post(webhook_url, json=message, timeout=10)
+            response.raise_for_status()
+        except requests.RequestException as e:
+            print(f"Failed to send Discord alert for {deal_info['name']}: {e}")
+
 def main():
     args = parse_args()
     watchlist = load_watchlist()
@@ -95,22 +106,26 @@ def main():
         if not watchlist["games"]:
             print("No games in the watchlist to check.")
             return
+        # Load webhook from environment variable so secret URLs aren't committed to GitHub
+        webhook_url = os.getenv("DISCORD_WEBHOOK_URL")
         table_rows = []
         for game in watchlist["games"]:
             deal_info = fetch_game_deals(game["name"])
             if deal_info is None:
                 print(f"No deals found for {game['name']}.")
                 continue
+            if webhook_url:
+                send_discord_alert(deal_info, game["target_price"], webhook_url)
             status = "Buy Now!" if deal_info["current_price"] <= game["target_price"] else "Wait"
             table_rows.append([
                 deal_info["name"],
                 f"${deal_info['current_price']:.2f}",
                 f"${deal_info['historical_low']:.2f}",
                 deal_info["historical_low_date"],
-                status
+                status,
             ])
-            if table_rows:
-                print(tabulate(table_rows, headers=["Game", "Current Price", "Historical Low", "Historical Low Date", "Status"], tablefmt="grid"))
+        if table_rows:
+            print(tabulate(table_rows, headers=["Game", "Current Price", "Historical Low", "Historical Low Date", "Status"], tablefmt="grid"))
     
 if __name__ == "__main__":
     main()

@@ -3,6 +3,10 @@
     {
       "name": "Balatro",
       "target_price": 10.0
+    },
+    {
+      "name": "Balatro",
+      "target_price": 99.99
     }
   ],
   "events": {
