@@ -4,6 +4,7 @@ import argparse
 import requests
 from datetime import datetime
 from tabulate import tabulate
+import csv
 
 watchlist_path = "watchlist.json"
 def load_watchlist():  
@@ -75,6 +76,23 @@ def send_discord_alert(deal_info, target_price, webhook_url):
         except requests.RequestException as e:
             print(f"Failed to send Discord alert for {deal_info['name']}: {e}")
 
+def log_price_history(deal_info, target_price, status, csv_path="price_history.csv"):
+    # Check if the file is new or empty so headers are only written once
+    file_exists = os.path.isfile(csv_path) and os.path.getsize(csv_path) > 0
+    with open(csv_path, "a", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        if not file_exists:
+            writer.writerow(["Timestamp", "Game", "Current Price", "Target Price", "Historical Low", "Historical Low Date", "Status"])
+        writer.writerow([
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            deal_info["name"],
+            f"${deal_info['current_price']:.2f}",
+            f"${target_price:.2f}",
+            f"${deal_info['historical_low']:.2f}",
+            deal_info["historical_low_date"],
+            status,
+        ])
+
 def main():
     args = parse_args()
     watchlist = load_watchlist()
@@ -117,6 +135,7 @@ def main():
             if webhook_url:
                 send_discord_alert(deal_info, game["target_price"], webhook_url)
             status = "Buy Now!" if deal_info["current_price"] <= game["target_price"] else "Wait"
+            log_price_history(deal_info, game["target_price"], status)
             table_rows.append([
                 deal_info["name"],
                 f"${deal_info['current_price']:.2f}",
