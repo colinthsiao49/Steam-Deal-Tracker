@@ -38,29 +38,43 @@ def parse_args():
     parser.add_argument("--check", action="store_true", help="Check live prices vs. historical lows.")
     return parser.parse_args()
 
-def fetch_game_deals(game_name):
+def fetch_stores():
+    headers = {"User-Agent": "Steam Deal Tracker/1.0"}
+    response = requests.get("https://www.cheapshark.com/api/1.0/stores", headers=headers)
+    response.raise_for_status()
+    stores = response.json()
+    return {store["storeID"]: store["storeName"] for store in stores}
+
+def fetch_game_deals(game_name, stores):
     # Custom User-Agent avoids default python-requests blocks on public APIs
     headers = {"User-Agent": "Steam Deal Tracker/1.0"}
-    headers = {"User-Agent": "Steam Deal Tracker/1.0"}
     base_url = "https://www.cheapshark.com/api/1.0/games"
-    search_result = requests.get(base_url, params={"title": game_name}, headers=headers)
+    search_result = requests.get(base_url, params={"title": game_name}, headers=headers, timeout=10)
     search_result.raise_for_status()
     results = search_result.json()
     if not results:
         return None
     game_id = results[0]["gameID"]
-    current_price = float(results[0]["cheapest"])
     # CheapShark's title search only returns gameID and current price,
-    # so a second lookup by ID is required to fetch the all-time historical low.
-    detail_res = requests.get(f"https://www.cheapshark.com/api/1.0/games?id={game_id}", headers=headers)
+    # so a second lookup by ID is required to fetch store deals and historical low.
+    detail_res = requests.get(f"{base_url}?id={game_id}", headers=headers, timeout=10)
     detail_res.raise_for_status()
     details = detail_res.json()
+    deals = details.get("deals", [])
+    best_deal = deals[0] if deals else None
+    current_price = float(best_deal["price"]) if best_deal else float(results[0]["cheapest"])
+    cheapest_store = stores.get(best_deal["storeID"], "Unknown") if best_deal else "Unknown"
+    # Steam's CheapShark storeID is always "1"
+    steam_deals = [d for d in deals if d["storeID"] == "1"]
+    steam_price = float(steam_deals[0]["price"]) if steam_deals else None
     historical_low = float(details["cheapestPriceEver"]["price"])
     # CheapShark returns cheapestPriceEver.date as a Unix epoch timestamp
     historical_low_date = datetime.fromtimestamp(details["cheapestPriceEver"]["date"]).strftime("%Y-%m-%d")
     return {
         "name": game_name,
+        "steam_price": steam_price,
         "current_price": current_price,
+        "cheapest_store": cheapest_store,
         "historical_low": historical_low,
         "historical_low_date": historical_low_date,
     }
@@ -126,9 +140,10 @@ def main():
             return
         # Load webhook from environment variable so secret URLs aren't committed to GitHub
         webhook_url = os.getenv("DISCORD_WEBHOOK_URL")
+        stores = fetch_stores()
         table_rows = []
         for game in watchlist["games"]:
-            deal_info = fetch_game_deals(game["name"])
+            deal_info = fetch_game_deals(game["name"], stores)
             if deal_info is None:
                 print(f"No deals found for {game['name']}.")
                 continue
@@ -136,16 +151,20 @@ def main():
                 send_discord_alert(deal_info, game["target_price"], webhook_url)
             status = "Buy Now!" if deal_info["current_price"] <= game["target_price"] else "Wait"
             log_price_history(deal_info, game["target_price"], status)
+            steam_display = f"${deal_info['steam_price']:.2f}" if deal_info["steam_price"] is not None else "N/A"
+            cheapest_display = f"${deal_info['current_price']:.2f} ({deal_info['cheapest_store']})"
             table_rows.append([
                 deal_info["name"],
-                f"${deal_info['current_price']:.2f}",
+                steam_display,
+                cheapest_display,
                 f"${deal_info['historical_low']:.2f}",
                 deal_info["historical_low_date"],
                 status,
             ])
         if table_rows:
-            print(tabulate(table_rows, headers=["Game", "Current Price", "Historical Low", "Historical Low Date", "Status"], tablefmt="grid"))
-    
+            headers = ["Game", "Steam Price", "Cheapest Overall", "Historical Low", "Low Date", "Status"]
+            print(tabulate(table_rows, headers=headers, tablefmt="grid"))
+
 if __name__ == "__main__":
     main()
 
